@@ -1,34 +1,74 @@
 import socket
+from multiprocessing.pool import ThreadPool
+from socket import *
+from random import *
 
-DELAY = 5
-
-
-def make_tcp_socket():
-    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    tcp_sock.settimeout(DELAY)
-    return tcp_sock
+random_time = randint(2 ** 16, 2 ** 64 - 1).to_bytes(8, 'big')
+udp_to_send = b'\x13' + b'\0' * 39 + random_time
 
 
-def make_udp_socket():
-    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_sock.settimeout(DELAY)
-    return udp_sock
+class Scanner:
+    def __init__(self, host):
+        self.host = host
+        self.output = []
+        self._threads = ThreadPool()
+        setdefaulttimeout(0.5)
 
+    def scan(self, args):
+        try:
+            tasks = []
+            for port in range(args.ports[0], args.ports[1] + 1):
+                if args.t:
+                    tcp_task = self._threads.apply_async(self._tcp_scan, args=(port, "TCP"))
+                    tasks.append(tcp_task)
+                if args.u:
+                    udp_task = self._threads.apply_async(self._udp_scan, args=(port, "UDP"))
+                    tasks.append(udp_task)
+            for task in tasks:
+                task.wait()
+        finally:
+            self._threads.terminate()
+            self._threads.join()
 
-def scan(host, port, output):
-    tcp_sock = make_tcp_socket()
-    udp_sock = make_udp_socket()
-    host = socket.gethostbyname(host)
-    try:
-        tcp_sock.connect((host, port))
-        output.append(f'TCP {port}')
-    except:
-        pass
+    def _udp_scan(self, port: int, proto: str):
+        with socket(AF_INET, SOCK_DGRAM) as sock:
+            try:
+                sock.sendto(b'', (self.host, port))
+                sock.settimeout(3)
+                data, address = sock.recvfrom(2048)
+            except (timeout, OSError):
+                pass
+            except PermissionError:
+                print(f'UDP port: {port} Permissom Error')
+            else:
+                print(f'{proto} {port} {Scanner.get_protocol(data, port, "udp")}')
 
-    try:
-        udp_sock.sendto(b'', (host, port))
-        data, address = udp_sock.recv(1024)
-        output.append(f'UDP {port}')
-    except socket.timeout:
-        pass
+    def _tcp_scan(self, port, proto: str):
+        with socket(AF_INET, SOCK_STREAM) as sock:
+            try:
+                sock.connect((self.host, port))
+                sock.send(b'')
+                try:
+                    data = sock.recv(1024)
+                    print(f'TCP {port} {Scanner.get_protocol(data, port, "tcp")}')
+                except timeout:
+                    print(f'TCP {port}')
+            except (ConnectionRefusedError, timeout):
+                pass
+            except PermissionError:
+                print(f'{proto} port: {port} Permissom Error')
+
+    @staticmethod
+    def get_protocol(data: bytes, port: int, transport: str) -> str:
+        if len(data) > 4 and b'HTTP' in data:
+            return 'HTTP'
+        if b'SMTP' in data or b'EHLO' in data:
+            return 'SMTP'
+        if b'POP3' in data or data.startswith(b'+OK') or data.startswith(b'+'):
+            return 'POP3'
+        if b'IMAP' in data:
+            return 'IMAP'
+        try:
+            return getservbyport(port, transport).upper()
+        except OSError:
+            return ''

@@ -1,23 +1,16 @@
-import scanner
-import threading
+from scanner import Scanner
+from argparse import *
 
-
-def scan_tcp(ports):
-    ports_stat = []
-    threads = []
-    for i in range(ports):
-        t = threading.Thread(target=scanner.scan, args=('149.112.112.112', i, ports_stat))
-        threads.append(t)
-
-    for i in range(ports):
-        threads[i].start()
-
-    for i in range(ports):
-        threads[i].join()
-    return ports_stat
-
+parser = ArgumentParser(description='Port Scanner')
+parser.add_argument('host', action='store', help='Host for scan')
+parser.add_argument('-t', action='store_true', help='TCP port scan')
+parser.add_argument('-u', action='store_true', help='UDP port scan')
+parser.add_argument('-p', '--ports', action='store', nargs=2, type=int,
+                    default=[1, 65535], help='Port scan range. Default 1- 65535')
 
 if __name__ == "__main__":
-    stat = scan_tcp(10000)
-    for i in stat:
-        print(i)
+    args = parser.parse_args()
+    scanner = Scanner(args.host)
+    scanner.scan(args)
+    for output in scanner.output:
+        print(output)
