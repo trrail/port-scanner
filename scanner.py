@@ -33,7 +33,7 @@ class Scanner:
     def _udp_scan(self, port: int, proto: str):
         with socket(AF_INET, SOCK_DGRAM) as sock:
             try:
-                sock.sendto(b'', (self.host, port))
+                sock.sendto(udp_to_send, (self.host, port))
                 sock.settimeout(3)
                 data, address = sock.recvfrom(2048)
             except (timeout, OSError):
@@ -47,7 +47,7 @@ class Scanner:
         with socket(AF_INET, SOCK_STREAM) as sock:
             try:
                 sock.connect((self.host, port))
-                sock.send(b'')
+                sock.send(b'a'*250 + b'\r\n\r\n')
                 try:
                     data = sock.recv(1024)
                     print(f'TCP {port} {Scanner.get_protocol(data, port, "tcp")}')
